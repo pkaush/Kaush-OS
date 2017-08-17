@@ -1,0 +1,123 @@
+#
+# Makefile fragment for KOS kernel.
+# This is NOT a complete makefile;
+# you must run make in the top-level directory
+#
+
+OBJDIRS += kern
+
+KERN_LDFLAGS := $(LDFLAGS) -T kern/kernel.ld -nostdlib
+
+# KOS.S must be first, so that it's the first code in the text segment!!!
+#
+# We also snatch the use of a couple handy source files
+# from the lib directory, to avoid gratuitous code duplication.
+KERN_SRCFILES :=	kern/kos.S 		\
+			kern/KOSstart.c 		\
+			kern/ke/ke.c			\
+			kern/ke/locks.c			\
+			kern/ke/wait.c			\
+			kern/ke/irql.c			\
+			kern/ke/dpc.c			\
+			kern/ke/ctxswitch.S		\
+			kern/ke/scheduler.c		\
+			kern/mm/mm.c 			\
+			kern/mm/pool.c			\
+			kern/ke/int.S			\
+			kern/ke/interrupt.c		\
+			kern/ke/exception.c		\
+			kern/ke/processor.c		\
+			kern/ke/timer.c
+			
+#Process Manager
+KERN_SRCFILES +=	kern/ps/process.c		\
+			kern/ps/thread.c		\
+			kern/ps/loader.c
+
+
+#Executive (Currently working on these two)
+
+# Object Manager
+KERN_SRCFILES +=	kern/ob/ob.c			\
+			kern/ob/obhandle.c		\
+			kern/ob/obdir.c			\
+			kern/ob/obname.c		\
+			kern/ob/obsym.c
+
+# IO Manager
+KERN_SRCFILES +=	kern/io/io.c			\
+			kern/io/iodevice.c			\
+			kern/io/iodriver.c			\
+			kern/io/iofile.c
+
+# EX
+KERN_SRCFILES +=	kern/ex/syscall.c
+
+
+# Library
+KERN_SRCFILES +=	lib/bitmap.c			\
+			lib/string.c			\
+			lib/stdio.c			\
+			kern/lib/console.c 		\
+			kern/lib/unicode.c
+
+
+
+# HAL
+KERN_SRCFILES +=	kern/hal/halx86.c		\
+			kern/hal/pic.c
+			
+# Drivers
+KERN_SRCFILES +=	kern/drivers/vga.c		\
+			kern/drivers/ide.c
+
+#File System
+KERN_SRCFILES +=	kern/fs/ff.c			\
+			kern/fs/kosfs.c
+
+# Only build files if they exist.
+#KERN_SRCFILES := $(wildcard $(KERN_SRCFILES))
+
+# Binary program images to embed within the kernel.
+
+KERN_BINFILES :=	user/prog/test
+
+KERN_OBJFILES := $(patsubst %.c, $(OBJDIR)/%.o, $(KERN_SRCFILES))
+KERN_OBJFILES := $(patsubst %.S, $(OBJDIR)/%.o, $(KERN_OBJFILES))
+KERN_OBJFILES := $(patsubst obj/lib/%, obj/kern/%, $(KERN_OBJFILES))
+
+KERN_BINFILES := $(patsubst %, $(OBJDIR)/%, $(KERN_BINFILES))
+
+# How to build kernel object files
+$(OBJDIR)/kern/%.o: kern/%.c
+	@echo + cc $<
+	@mkdir -p $(@D)
+	$(V)$(CC) -nostdinc $(KERN_CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/kern/%.o: kern/%.S
+	@echo + as $<
+	@mkdir -p $(@D)
+	$(V)$(CC) -nostdinc $(KERN_CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/kern/%.o: lib/%.c
+	@echo + cc $<
+	@mkdir -p $(@D)
+	$(V)$(CC) -nostdinc $(KERN_CFLAGS) -c -o $@ $<
+
+# How to build the kernel itself
+$(OBJDIR)/kern/kernel: $(KERN_OBJFILES) $(KERN_BINFILES) kern/kernel.ld
+	@echo + ld $@
+	$(V)$(LD) -o $@ $(KERN_LDFLAGS) $(KERN_OBJFILES) $(GCC_LIB) -b binary $(KERN_BINFILES)
+	$(V)$(OBJDUMP) -S $@ > $@.asm
+	$(V)$(NM) -n $@ > $@.sym
+
+# How to build the disk image
+$(OBJDIR)/kern/disk.img: $(OBJDIR)/kern/kernel $(OBJDIR)/boot/boot
+	@echo + mk $@
+	$(V)dd if=/dev/zero of=$(OBJDIR)/kern/disk.img~ count=10000 2>/dev/null
+	$(V)dd if=$(OBJDIR)/boot/boot of=$(OBJDIR)/kern/disk.img~ conv=notrunc 2>/dev/null
+	$(V)dd if=$(OBJDIR)/kern/kernel of=$(OBJDIR)/kern/disk.img~ seek=1 conv=notrunc 2>/dev/null
+	$(V)mv $(OBJDIR)/kern/disk.img~ $(OBJDIR)/kern/disk.img
+
+all: $(OBJDIR)/kern/disk.img
+

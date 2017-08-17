@@ -1,0 +1,24 @@
+OBJDIRS += user/lib
+SRCDIRS += user/lib
+
+
+LIB_SRCFILES :=		user/lib/syscall.c
+			
+
+			
+LIB_OBJFILES := $(patsubst user/lib/%.c, $(OBJDIR)/user/lib/%.o, $(LIB_SRCFILES))
+LIB_OBJFILES := $(patsubst user/lib/%.S, $(OBJDIR)/user/lib/%.o, $(LIB_OBJFILES))
+
+$(OBJDIR)/user/lib/%.o: user/lib/%.c
+	@echo + cc[USER] $<
+	@mkdir -p $(@D)
+	$(V)$(CC) -nostdinc $(USER_CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/user/lib/%.o: user/lib/%.S
+	@echo + as[USER] $<
+	@mkdir -p $(@D)
+	$(V)$(CC) -nostdinc $(USER_CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/user/lib/libkos.a: $(LIB_OBJFILES)
+	@echo + ar $@
+	$(V)$(AR) r $@ $(LIB_OBJFILES)

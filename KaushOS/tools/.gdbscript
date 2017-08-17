@@ -1,0 +1,63 @@
+set $CurrentProcessor = 0
+set $CurrentProcess = 0
+set $CurrentThread = 0
+
+
+
+
+
+
+
+
+
+#			THREAD SECTION
+
+
+# print current KTHREAD on the $CurrentProcessor 
+define Kos_thread 
+	set $thread = KiProcessorBlock[$CurrentProcessor]->Prcb.CurrentThread
+	p* $thread
+end
+
+# print current ETHREAD on the $CurrentProcessor
+define Kos_ethread 
+	set $thread = KiProcessorBlock[$CurrentProcessor]->Prcb.CurrentThread
+	p* (PETHREAD)$thread
+end
+
+
+
+
+
+
+
+define Kos_irql
+	p KiProcessorBlock[$CurrentProcessor]->Prcb.CurrentIrql
+end
+
+
+
+
+define Kos_scheduler
+	p KiProcessorBlock[$CurrentProcessor]->Prcb.Scheduler_list[0]
+end
+
+
+define Kos_setthread
+	set $CurrentThread = $arg0
+end
+
+define Kos_setprocess
+	set $CurrentProcess = $arg0
+end
+
+
+
+#		Experiment
+
+
+
+define kos_try
+	p $1
+end
+

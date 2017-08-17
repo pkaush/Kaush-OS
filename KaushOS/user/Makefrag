@@ -1,0 +1,6 @@
+OBJDIRS += user
+SRCDIRS += user
+
+
+include $(SRCDIRS)/Lib/Makefrag
+include $(SRCDIRS)/Prog/Makefrag

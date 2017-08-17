@@ -1,0 +1,14 @@
+OBJDIRS += user/prog
+SRCDIRS += user/prog
+
+
+$(OBJDIR)/user/prog/%.o: user/prog/%.c
+	@echo + cc[USER] $<
+	@mkdir -p $(@D)
+	$(V)$(CC) -nostdinc $(USER_CFLAGS) $(USER_LIBC_INCLUDE) -c -o $@ $<
+
+$(OBJDIR)/user/prog/%: $(OBJDIR)/user/prog/%.o $(OBJDIR)/user/lib/usermode.o $(OBJDIR)/user/lib/libkos.a user/lib/user.ld
+	@echo + ld $@
+	$(V)$(LD) -o $@ $(ULDFLAGS) $(LDFLAGS) -nostdlib $(OBJDIR)/user/lib/usermode.o $@.o -L$(OBJDIR)/user/lib -lkos $(GCC_LIB)
+	$(V)$(OBJDUMP) -S $@ > $@.asm
+	$(V)$(NM) -n $@ > $@.sym

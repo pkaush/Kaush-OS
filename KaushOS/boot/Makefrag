@@ -1,0 +1,28 @@
+#Make Frag file for Boot Loader
+
+
+OBJDIRS += boot
+
+BOOT_OBJS := $(OBJDIR)/boot/boot.o $(OBJDIR)/boot/loadk.o
+
+$(OBJDIR)/boot/%.o: boot/%.c
+	@echo + cc $<
+	@mkdir -p $(@D)
+	$(V)$(CC) -nostdinc $(KERN_CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/boot/%.o: boot/%.S
+	@echo + as $<
+	@mkdir -p $(@D)
+	nasm -f elf -o $@ $<
+
+$(OBJDIR)/boot/loadk.o: boot/loadk.c
+	@echo + cc -Os $<
+	$(V)$(CC) -nostdinc $(KERN_CFLAGS) -Os -c -o $(OBJDIR)/boot/loadk.o boot/loadk.c
+
+$(OBJDIR)/boot/boot: $(BOOT_OBJS)
+	@echo + ld boot/boot
+	$(V)$(LD) -N -e start -Ttext 7c00 -o $@.out $^
+	$(V)$(OBJDUMP) -S $@.out >$@.asm
+	$(V)$(OBJCOPY) -S -O binary $@.out $@
+	$(V)perl boot/sign.pl $(OBJDIR)/boot/boot
+
