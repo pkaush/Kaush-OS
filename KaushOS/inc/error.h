@@ -1,69 +1,57 @@
 /*
-*  C Interface:	ERROR.H
-*
-* Description: Error definitions
-*
-*
-* Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
-*
-* Copyright: See COPYRIGHT file that comes with this distribution
-*
-*/
+ *  C Interface:	ERROR.H
+ *
+ * Description: Error definitions
+ *
+ *
+ * Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
+ *
+ * Copyright: See COPYRIGHT file that comes with this distribution
+ *
+ */
 
 #ifndef __KOS_INC_ERROR_H__
 #define __KOS_INC_ERROR_H__
 
-
-#include	<inc/types.h>
-
-
+#include <inc/types.h>
 
 #if 0
-#define SUCCESS	0
+#define SUCCESS 0
 
 //Old Error Code for KOS Kernel
 // Keep them here for legacy code
 
-#define E_UNSPECIFIED	1	// Unspecified or unknown problem
-#define E_BAD_PROC	2	// process doesn't exist or otherwise
+#define E_UNSPECIFIED 1  // Unspecified or unknown problem
+#define E_BAD_PROC 2     // process doesn't exist or otherwise
 				// cannot be used in requested action
-#define E_INVAL		3	// Invalid parameter
-#define E_NO_MEM	4	// Request failed due to memory shortage
-#define E_NO_FREE_PROC	5	// Attempt to create a new process beyond
+#define E_INVAL 3        // Invalid parameter
+#define E_NO_MEM 4       // Request failed due to memory shortage
+#define E_NO_FREE_PROC 5 // Attempt to create a new process beyond
 				// the maximum allowed
-#define E_IPC_NOT_RECV	6	// Attempt to send to proc that is not recving
-#define E_EOF		7	// Unexpected end of file
+#define E_IPC_NOT_RECV 6 // Attempt to send to proc that is not recving
+#define E_EOF 7          // Unexpected end of file
 
 // File system error codes
-#define E_NO_DISK	8	// No free space left on disk
-#define E_MAX_OPEN	9	// Too many files are open
-#define E_NOT_FOUND	10 	// File or block not found
-#define E_BAD_PATH	11	// Bad path
-#define E_FILE_EXISTS	12	// File already exists
-#define E_NOT_EXEC	13	// File not a valid executable
+#define E_NO_DISK 8      // No free space left on disk
+#define E_MAX_OPEN 9     // Too many files are open
+#define E_NOT_FOUND 10   // File or block not found
+#define E_BAD_PATH 11    // Bad path
+#define E_FILE_EXISTS 12 // File already exists
+#define E_NOT_EXEC 13    // File not a valid executable
 
-
-#define E_BAD_OBJ	14		//Invalid Object or Object type
+#define E_BAD_OBJ 14 // Invalid Object or Object type
 
 //Device Related Errors
 
-#define MAXERROR	13
+#define MAXERROR 13
 #endif
 
-
-typedef LONG	KSTATUS;
-
-
+typedef LONG KSTATUS;
 
 #define STATUS_SUCCESS ((KSTATUS)0x00000000L)
 
-#define success(Status)	(Status >= STATUS_SUCCESS)
-#define K_SUCCESS(Status)	(Status >= STATUS_SUCCESS)
-
-
-
-
-
+#define success(Status) (Status >= STATUS_SUCCESS)
+#define K_SUCCESS(Status) (Status >= STATUS_SUCCESS)
 
 #define FACILITY_DEBUGGER 0x1
 #define FACILITY_RPC_RUNTIME 0x2
@@ -80,7 +68,6 @@ typedef LONG	KSTATUS;
 #define STATUS_SEVERITY_INFORMATIONAL 0x1
 #define STATUS_SEVERITY_WARNING 0x2
 #define STATUS_SEVERITY_ERROR 0x3
-
 
 #define STATUS_WAIT_0 ((KSTATUS)0x00000000L)
 #define STATUS_WAIT_1 ((KSTATUS)0x00000001L)
@@ -1133,29 +1120,22 @@ typedef LONG	KSTATUS;
 #define STATUS_CLUSTER_POISONED ((KSTATUS)0xC0130017L)
 
 /*
-* Debug codes
-*/
+ * Debug codes
+ */
 
-#define DBG_EXCEPTION_HANDLED            ((KSTATUS)0x00010001)
-#define DBG_CONTINUE                     ((KSTATUS)0x00010002)
-#define DBG_REPLY_LATER                  ((KSTATUS)0x40010001)
-#define DBG_UNABLE_TO_PROVIDE_HANDLE     ((KSTATUS)0x40010002)
-#define DBG_TERMINATE_THREAD             ((KSTATUS)0x40010003)
-#define DBG_TERMINATE_PROCESS            ((KSTATUS)0x40010004)
-#define DBG_CONTROL_C                    ((KSTATUS)0x40010005)
-#define DBG_PRINTEXCEPTION_C             ((KSTATUS)0x40010006)
-#define DBG_RIPEXCEPTION                 ((KSTATUS)0x40010007)
-#define DBG_CONTROL_BREAK                ((KSTATUS)0x40010008)
-#define DBG_COMMAND_EXCEPTION            ((KSTATUS)0x40010009)
-#define DBG_EXCEPTION_NOT_HANDLED        ((KSTATUS)0x80010001)
-#define DBG_NO_STATE_CHANGE              ((KSTATUS)0xC0010001)
-#define DBG_APP_NOT_IDLE                 ((KSTATUS)0xC0010002)
+#define DBG_EXCEPTION_HANDLED ((KSTATUS)0x00010001)
+#define DBG_CONTINUE ((KSTATUS)0x00010002)
+#define DBG_REPLY_LATER ((KSTATUS)0x40010001)
+#define DBG_UNABLE_TO_PROVIDE_HANDLE ((KSTATUS)0x40010002)
+#define DBG_TERMINATE_THREAD ((KSTATUS)0x40010003)
+#define DBG_TERMINATE_PROCESS ((KSTATUS)0x40010004)
+#define DBG_CONTROL_C ((KSTATUS)0x40010005)
+#define DBG_PRINTEXCEPTION_C ((KSTATUS)0x40010006)
+#define DBG_RIPEXCEPTION ((KSTATUS)0x40010007)
+#define DBG_CONTROL_BREAK ((KSTATUS)0x40010008)
+#define DBG_COMMAND_EXCEPTION ((KSTATUS)0x40010009)
+#define DBG_EXCEPTION_NOT_HANDLED ((KSTATUS)0x80010001)
+#define DBG_NO_STATE_CHANGE ((KSTATUS)0xC0010001)
+#define DBG_APP_NOT_IDLE ((KSTATUS)0xC0010002)
 
-
-
-
-
-
-
-
-#endif	// End of header
+#endif // End of header

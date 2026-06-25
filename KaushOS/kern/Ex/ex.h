@@ -1,96 +1,66 @@
 /*
-*  C Interface:	Ex.h
-*
-* Description:
-*
-*
-* Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
-*
-* Copyright: See COPYRIGHT file that comes with this distribution
-*
-*/
+ *  C Interface:	Ex.h
+ *
+ * Description:
+ *
+ *
+ * Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
+ *
+ * Copyright: See COPYRIGHT file that comes with this distribution
+ *
+ */
 
+#ifndef __KOS_EX_EX_H__
+#define __KOS_EX_EX_H__
 
-#ifndef	__KOS_EX_EX_H__
-#define	__KOS_EX_EX_H__
+#include <inc/error.h>
+#include <inc/file.h>
+#include <inc/types.h>
+#include <kern/ke/ke.h>
 
-
-#include	<inc/types.h>
-#include	<kern/ke/ke.h>
-#include	<inc/error.h>
-#include	<inc/file.h>
-
-
-
-#define EX_MAX_HANDLE	1024 // entries for one page
-
+#define EX_MAX_HANDLE 1024 // entries for one page
 
 typedef struct _HANDLE_TABLE_ENTRY
 {
-	PVOID Object;
+    PVOID Object;
 } HANDLE_TABLE_ENTRY, *PHANDLE_TABLE_ENTRY;
-
-
 
 typedef struct _HANDLE_TABLE
 {
-	PHANDLE_TABLE_ENTRY Handle;
+    PHANDLE_TABLE_ENTRY Handle;
 
-//I am not yet going into PushLocks
-	KMUTANT	HandleLock;
+    // I am not yet going into PushLocks
+    KMUTANT HandleLock;
 
 } HANDLE_TABLE, *PHANDLE_TABLE;
 
+typedef struct _ERESOURCE
+{
 
+    // I don't think this will work
 
-
-
-
-
-
-
-
-
-typedef struct _ERESOURCE {
-
-// I don't think this will work
-
-	ULONG	Shared;
-	ULONG	Exclusive;
-	ULONG	ExclusiveWaiting;
-	KSPIN_LOCK	Spinlock;
-}ERESOURCE, *PERESOURCE;
-
+    ULONG Shared;
+    ULONG Exclusive;
+    ULONG ExclusiveWaiting;
+    KSPIN_LOCK Spinlock;
+} ERESOURCE, *PERESOURCE;
 
 KSTATUS
-ExInitializeResourceLite(
-	IN PERESOURCE  Resource
-	);
+ExInitializeResourceLite(IN PERESOURCE Resource);
 
-BOOLEAN 
-ExAcquireResourceExclusiveLite(
-	IN PERESOURCE  Resource,
-	IN BOOLEAN  Wait
-	);
+BOOLEAN
+ExAcquireResourceExclusiveLite(IN PERESOURCE Resource, IN BOOLEAN Wait);
 
-VOID 
-ExReleaseResourceLite(
-	IN PERESOURCE  Resource
-	);
+VOID ExReleaseResourceLite(IN PERESOURCE Resource);
 
+#define ExAllocatePoolWithTag(P, N, T) MmAllocatePoolWithTag(P, N, T)
 
+#define ExFreePoolWithTag(P, T) MmFreePoolWithTag(P, T)
 
-#define ExAllocatePoolWithTag(P,N,T) MmAllocatePoolWithTag(P,N,T)
-
-#define ExFreePoolWithTag(P,T) MmFreePoolWithTag(P,T) 
-
-#define ExFreePool(P) MmFreePoolWithTag(P,0) 
-
-
-
+#define ExFreePool(P) MmFreePoolWithTag(P, 0)
 
 /***************************************
-				LOOKASIDE LIST
+                LOOKASIDE LIST
 ***************************************/
 
 #if 0

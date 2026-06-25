@@ -1,221 +1,160 @@
 /*
-*  C Implementation: IoFile.c
-*
-* Description: IO Manager's File Implementation
-*
-*
-* Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
-*
-* Copyright: See COPYRIGHT file that comes with this distribution
-*
-*/
-
-
-
-
+ *  C Implementation: IoFile.c
+ *
+ * Description: IO Manager's File Implementation
+ *
+ *
+ * Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
+ *
+ * Copyright: See COPYRIGHT file that comes with this distribution
+ *
+ */
 
 #include "io.h"
 
+#define IoFileLogsEnable 1
 
-#define IoFileLogsEnable	1
-
-
-
-#if IoFileLogsEnable	
-#define IoFileLog(fmt, args...) 		kprintf("[%s][%d]:", __FUNCTION__, __LINE__);kprintf(fmt, ## args)
+#if IoFileLogsEnable
+#define IoFileLog(fmt, args...)                                                                                        \
+    kprintf("[%s][%d]:", __FUNCTION__, __LINE__);                                                                      \
+    kprintf(fmt, ##args)
 #else
 #define IoFileLog(fmt, args...)
 #endif
 
-
 KSTATUS
-IoCreateFile(IN PCHAR Filename,
-					IN FILE_MODE  FileMode,
-					OUT PHANDLE pHandle)
+IoCreateFile(IN PCHAR Filename, IN FILE_MODE FileMode, OUT PHANDLE pHandle)
 {
-	PDEVICE_OBJECT DeviceObject = NULL;
-	KSTATUS Status;
-	PIRP pIrp;
-	PFILE_OBJECT pFileObj = NULL;
-	OBJECT_ATTRIBUTES ObjectAttributes;
-	PCHAR PathRemaining;
+    PDEVICE_OBJECT DeviceObject = NULL;
+    KSTATUS Status;
+    PIRP pIrp;
+    PFILE_OBJECT pFileObj = NULL;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    PCHAR PathRemaining;
 
+    Status = ObGetDeviceObject(Filename, &PathRemaining, &DeviceObject);
 
-	
-	Status = ObGetDeviceObject(Filename, &PathRemaining, &DeviceObject);
+    if (!K_SUCCESS(Status))
+    {
+        ASSERT1(0, Status);
+        return Status;
+    }
 
-	if (!K_SUCCESS(Status)) {
-		ASSERT1(0, Status);
-		return Status;
-	}
+    IoFileLog("GOt the Device Object for file %s, rem path %s objct 0x%x\n", Filename, PathRemaining, DeviceObject);
+    ASSERT(IoFileObjectType);
 
-	IoFileLog("GOt the Device Object for file %s, rem path %s objct 0x%x\n", Filename, PathRemaining, DeviceObject);
-	ASSERT(IoFileObjectType);
+    InitializeObjectAttributes(&ObjectAttributes, NULL, OBJ_INHERIT, NULL, NULL);
 
+    Status = ObCreateObject(UserMode, IoFileObjectType, &ObjectAttributes, sizeof(FILE_OBJECT), &pFileObj);
 
-	InitializeObjectAttributes(&ObjectAttributes,
-					NULL,OBJ_INHERIT,NULL, NULL);
+    if (!K_SUCCESS(Status))
+    {
+        ASSERT(0);
+        return Status;
+    }
 
-	Status = ObCreateObject(	UserMode,
-						IoFileObjectType,
-						&ObjectAttributes,
-						sizeof(FILE_OBJECT),
-						&pFileObj);
+    ASSERT(pFileObj);
 
-	if (!K_SUCCESS(Status)) {
-		ASSERT(0);
-		return Status;
-	}
+    pFileObj->DeviceObject = DeviceObject;
+    pFileObj->FileOffset = 0;
+    pFileObj->FileMode = FileMode;
+    strncpy(pFileObj->filename, PathRemaining, MAXPATHLEN);
 
-	ASSERT (pFileObj);
+    pIrp = IoBuildIrp(pFileObj, IRP_MJ_CREATE, IRP_MN_NULL, NULL, 0, 0);
 
+    if (pIrp == NULL)
+    {
+        ObDereferenceObject(pFileObj);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
 
-	pFileObj->DeviceObject = DeviceObject;
-	pFileObj->FileOffset = 0;
-	pFileObj->FileMode = FileMode;
-	strncpy(pFileObj->filename, PathRemaining, MAXPATHLEN);
-	
-	pIrp = IoBuildIrp(pFileObj,
-					IRP_MJ_CREATE,
-					IRP_MN_NULL,
-					NULL, 0, 0);
+    Status = IoCallDriver(DeviceObject, pIrp);
 
-		
-	if (pIrp == NULL) {
-		ObDereferenceObject( pFileObj);
-		return STATUS_INSUFFICIENT_RESOURCES;
-	}
-	
+    if (!K_SUCCESS(Status))
+    {
+        ObDereferenceObject(pFileObj);
+        return Status;
+    }
 
-	Status = IoCallDriver(DeviceObject, pIrp);
-		
-	if (!K_SUCCESS(Status)) {	
-		ObDereferenceObject( pFileObj);
-		return Status;
-	}
+    Status = ObInsertObject(pFileObj, 0, 1, pHandle);
 
+    if (!K_SUCCESS(Status))
+    {
+        ObDereferenceObject(pFileObj);
+        return Status;
+    }
 
-
-	Status = ObInsertObject(pFileObj, 0,1, pHandle);
-		
-	if (!K_SUCCESS(Status)) {	
-		ObDereferenceObject( pFileObj);
-		return Status;
-	}
-
-	IoFreeIRP(pIrp);
-	return Status;
+    IoFreeIRP(pIrp);
+    return Status;
 }
 
-
-
-
-
-
-
-
-
-
-
-
 KSTATUS
-KCreateFile( IN PCHAR Filename,
-					IN FILE_MODE  FileMode,
-					OUT PHANDLE pHandle)
+KCreateFile(IN PCHAR Filename, IN FILE_MODE FileMode, OUT PHANDLE pHandle)
 /*
-  * Filename - Filename with complete path
-  *
-  */
-
+ * Filename - Filename with complete path
+ *
+ */
 
 {
-	return (IoCreateFile(Filename, FileMode, pHandle));
+    return (IoCreateFile(Filename, FileMode, pHandle));
 }
-
-
 
 KSTATUS
 IoCloseFile(IN PFILE_OBJECT FileObject)
 {
 
-	if (FileObject->FsContext== 0) {
-		// Dereferensing the object where file hasn't been created will bring us here
-		// so we will just return SUCCESS from Here.
-		return STATUS_SUCCESS;
-	}
+    if (FileObject->FsContext == 0)
+    {
+        // Dereferensing the object where file hasn't been created will bring us here
+        // so we will just return SUCCESS from Here.
+        return STATUS_SUCCESS;
+    }
 
-	// need to clean up FileObj created in 
-	return (IoFileOperations( FileObject, NULL, 0, 
-					IRP_MJ_CLOSE, IRP_MN_NULL));
-
-
+    // need to clean up FileObj created in
+    return (IoFileOperations(FileObject, NULL, 0, IRP_MJ_CLOSE, IRP_MN_NULL));
 }
 
-
-VOID
-KCloseFile(IN HANDLE Handle)
+VOID KCloseFile(IN HANDLE Handle)
 {
-	ObClose(Handle);
+    ObClose(Handle);
 }
-
-
-
-
-
 
 KSTATUS
-KReadFile( IN HANDLE Handle,
-					IN PVOID Buffer,
-					IN ULONG NumberOfBytes
-					)
+KReadFile(IN HANDLE Handle, IN PVOID Buffer, IN ULONG NumberOfBytes)
 {
 
-	KSTATUS Status;
-	PFILE_OBJECT FileObject;
-	Status = ObReferenceObjectByHandle(Handle, 0, IoFileObjectType, UserMode, &FileObject, NULL);
+    KSTATUS Status;
+    PFILE_OBJECT FileObject;
+    Status = ObReferenceObjectByHandle(Handle, 0, IoFileObjectType, UserMode, &FileObject, NULL);
 
-	if (!K_SUCCESS(Status)) {
-		ASSERT1(0, FileObject);
+    if (!K_SUCCESS(Status))
+    {
+        ASSERT1(0, FileObject);
+    }
 
-	}
+    Status = IoFileOperations(FileObject, Buffer, NumberOfBytes, IRP_MJ_READ, IRP_MN_NULL);
 
-
-	Status = IoFileOperations(FileObject, Buffer, 
-							NumberOfBytes, 
-							IRP_MJ_READ, 
-							IRP_MN_NULL);
-
-
-	ObDereferenceObject(FileObject);
-	return Status;
+    ObDereferenceObject(FileObject);
+    return Status;
 }
-
 
 KSTATUS
-KWriteFile( IN HANDLE Handle,
-					IN PVOID Buffer,
-					IN ULONG NumberOfBytes
-					)
+KWriteFile(IN HANDLE Handle, IN PVOID Buffer, IN ULONG NumberOfBytes)
 {
-	KSTATUS Status;
-	PFILE_OBJECT FileObject;
-	Status = ObReferenceObjectByHandle(Handle, 0, IoFileObjectType, UserMode, &FileObject, NULL);
+    KSTATUS Status;
+    PFILE_OBJECT FileObject;
+    Status = ObReferenceObjectByHandle(Handle, 0, IoFileObjectType, UserMode, &FileObject, NULL);
 
-	if (!K_SUCCESS(Status)) {
-		ASSERT1(0, FileObject);
+    if (!K_SUCCESS(Status))
+    {
+        ASSERT1(0, FileObject);
+    }
 
-	}
+    IoFileOperations(FileObject, Buffer, NumberOfBytes, IRP_MJ_WRITE, IRP_MN_NULL);
 
-	IoFileOperations(FileObject, Buffer, 
-							NumberOfBytes, 
-							IRP_MJ_WRITE, 
-							IRP_MN_NULL);
-	
-	ObDereferenceObject(FileObject);
-	return Status;
+    ObDereferenceObject(FileObject);
+    return Status;
 }
-
-
 
 #if 0
 
@@ -262,37 +201,23 @@ KQueryStats(IN PCHAR Filename, IN PVOID Buffer, ULONG NumberOfBytes)
 
 }
 
-
 #endif
-
-
-
-
 
 KSTATUS
 IoCreateFileObjectType()
 {
 
+    OBJECT_TYPE ObjectType;
 
-	OBJECT_TYPE ObjectType;
+    memset(&ObjectType, 0, sizeof(OBJECT_TYPE));
 
-	memset (&ObjectType, 0, sizeof(OBJECT_TYPE));
+    ObjectType.PoolType = NonPagedPool;
+    ObjectType.FLAGS = 0;
+    ObjectType.ObjectSize = sizeof(FILE_OBJECT);
+    ObjectType.TypeIndex = OBJECT_TYPE_FILE;
+    ObjectType.PoolTag = 'eliF';
 
-	
-	ObjectType.PoolType = NonPagedPool;
-	ObjectType.FLAGS = 0;
-	ObjectType.ObjectSize = sizeof(FILE_OBJECT);
-	ObjectType.TypeIndex = OBJECT_TYPE_FILE;
-	ObjectType.PoolTag = 'eliF';
+    ObjectType.CloseProcedure = IoCloseFile;
 
-
-	ObjectType.CloseProcedure = IoCloseFile;
-
-
-
-	
-	ObCreateObjectType(&ObjectType, &IoFileObjectType);
-
+    ObCreateObjectType(&ObjectType, &IoFileObjectType);
 }
-
-

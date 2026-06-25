@@ -1,20 +1,17 @@
 /*
-*  C Implementation: Apc.c
-*
-* Description:  APC Implementation
-*
-*
-* Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
-*
-* Copyright: See COPYRIGHT file that comes with this distribution
-*
-*/
+ *  C Implementation: Apc.c
+ *
+ * Description:  APC Implementation
+ *
+ *
+ * Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
+ *
+ * Copyright: See COPYRIGHT file that comes with this distribution
+ *
+ */
 
-
-
-
-
-typedef struct _KAPC {
+typedef struct _KAPC
+{
     UCHAR Type;
     UCHAR SpareByte0;
     UCHAR Size;
@@ -38,39 +35,27 @@ typedef struct _KAPC {
     BOOLEAN Inserted;
 } KAPC, *PKAPC, *PRKAPC;
 
-
-
-
-VOID 
-  KeEnterCriticalRegion()
+VOID KeEnterCriticalRegion()
 {
-/*
-We will implement this with the APCs till then just keep the blank def here
-*/
-		ASSERT1(KeGetCurrentIrql() <= APC_LEVEL, KeGetCurrentIrql());
-
-
-
+    /*
+    We will implement this with the APCs till then just keep the blank def here
+    */
+    ASSERT1(KeGetCurrentIrql() <= APC_LEVEL, KeGetCurrentIrql());
 }
 
-VOID 
-KeLeaveCriticalRegion()
+VOID KeLeaveCriticalRegion()
 {
-	ASSERT1(KeGetCurrentIrql() <= APC_LEVEL, KeGetCurrentIrql());
-
+    ASSERT1(KeGetCurrentIrql() <= APC_LEVEL, KeGetCurrentIrql());
 }
 
 BOOLEAN
 KeAreApcsDisabled()
 {
-		ASSERT1(KeGetCurrentIrql() <= APC_LEVEL, KeGetCurrentIrql());
-
+    ASSERT1(KeGetCurrentIrql() <= APC_LEVEL, KeGetCurrentIrql());
 }
 
 BOOLEAN
-KeAreAllApcsDisabled ()
+KeAreAllApcsDisabled()
 {
-	ASSERT1(KeGetCurrentIrql() <= APC_LEVEL, KeGetCurrentIrql());
-
+    ASSERT1(KeGetCurrentIrql() <= APC_LEVEL, KeGetCurrentIrql());
 }
-

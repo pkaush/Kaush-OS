@@ -1,338 +1,275 @@
 /*
-*  C Implementation:Ob.c
-*
-* Description: Object Manager
-*
-*
-* Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
-*
-* Copyright: See COPYRIGHT file that comes with this distribution
-*
-*/
+ *  C Implementation:Ob.c
+ *
+ * Description: Object Manager
+ *
+ *
+ * Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
+ *
+ * Copyright: See COPYRIGHT file that comes with this distribution
+ *
+ */
 
+#include "ob.h"
 
-#include	"ob.h"
-
-#define OB_OBJECT_NAME_LENGTH	64
+#define OB_OBJECT_NAME_LENGTH 64
 
 typedef ULONG SECURITY_DESCRIPTOR;
 
-
-#define ObLogsEnable	1
+#define ObLogsEnable 1
 
 #if ObLogsEnable
-#define ObLog(fmt, args...) 		kprintf("[%s][%d]:", __FUNCTION__, __LINE__); kprintf(fmt, ## args)
+#define ObLog(fmt, args...)                                                                                            \
+    kprintf("[%s][%d]:", __FUNCTION__, __LINE__);                                                                      \
+    kprintf(fmt, ##args)
 #else
 #define ObLog(fmt, args...)
 #endif
-
-
 
 // this will store the info of a type of Object
 // this will be just created once at the init
 OBJECT_TYPE ObjectTypeList[OBJECT_TYPE_LAST];
 
-
-
 KSTATUS
-ObCreateObjectType(
-					IN POBJECT_TYPE ObjectType,
-					OUT POBJECT_TYPE *SavedObjectType
-					)
+ObCreateObjectType(IN POBJECT_TYPE ObjectType, OUT POBJECT_TYPE *SavedObjectType)
 
 {
 
-	POBJECT_TYPE LocalObjectType;
+    POBJECT_TYPE LocalObjectType;
 
-	ASSERT1(ObjectType->TypeIndex < OBJECT_TYPE_LAST, ObjectType->TypeIndex);
-	ASSERT(SavedObjectType);
-	ASSERT(*SavedObjectType == NULL);
+    ASSERT1(ObjectType->TypeIndex < OBJECT_TYPE_LAST, ObjectType->TypeIndex);
+    ASSERT(SavedObjectType);
+    ASSERT(*SavedObjectType == NULL);
 
-	if (ObjectType->TypeIndex >= OBJECT_TYPE_LAST) {
-		KeBugCheck("Unknown Object type\n");
-	}
+    if (ObjectType->TypeIndex >= OBJECT_TYPE_LAST)
+    {
+        KeBugCheck("Unknown Object type\n");
+    }
 
+    // Take the pointer to the memory reserved for this object type
+    LocalObjectType = &ObjectTypeList[ObjectType->TypeIndex];
 
-// Take the pointer to the memory reserved for this object type	
-	LocalObjectType = &ObjectTypeList[ObjectType->TypeIndex];
+    // Copy the passed Object type into our storage for the object type
+    memcpy(LocalObjectType, ObjectType, sizeof(OBJECT_TYPE));
 
-// Copy the passed Object type into our storage for the object type
-	memcpy(LocalObjectType, ObjectType,	sizeof(OBJECT_TYPE));
+    LIST_INIT(&LocalObjectType->Object_List_Head);
+    KeInitializeSpinLock(&LocalObjectType->SpinLock);
 
-	LIST_INIT(&LocalObjectType->Object_List_Head);
-	KeInitializeSpinLock(&LocalObjectType->SpinLock);
+    if (SavedObjectType)
+    {
 
-	if (SavedObjectType) {
+        *SavedObjectType = LocalObjectType;
+    }
 
-		*SavedObjectType = LocalObjectType;
-	}
-
-	return STATUS_SUCCESS;
+    return STATUS_SUCCESS;
 }
 
-
-VOID
-ObRemoveObject( IN PVOID Object)
+VOID ObRemoveObject(IN PVOID Object)
 {
 
+    POBJECT_TYPE ObjectType;
+    KIRQL OldIrql;
+    ULONG PoolTag;
+    POBJECT_HEADER ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
 
-	POBJECT_TYPE ObjectType;
-	KIRQL OldIrql;
-	ULONG PoolTag;
-	POBJECT_HEADER ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
+    ASSERT(ObjectHeader->RefCount == 0);
+    ASSERT(ObjectHeader->OpenHandleCount == 0);
+    ASSERT((ObjectHeader->Attributes & OBJ_PERMANENT) == 0);
 
-	ASSERT(ObjectHeader->RefCount == 0);
-	ASSERT(ObjectHeader->OpenHandleCount == 0);
-	ASSERT( (ObjectHeader->Attributes & OBJ_PERMANENT) == 0);
+    ObjectType = ObjectHeader->ObjectType;
 
-	ObjectType = ObjectHeader->ObjectType;
+    if (ObjectType->CloseProcedure)
+    {
+        (ObjectType->CloseProcedure)(Object);
+    }
 
+    KeAcquireSpinLock(&ObjectType->SpinLock, &OldIrql);
+    LIST_REMOVE(&ObjectType->Object_List_Head, ObjectHeader, ObjectTypeListLink);
 
-	if (ObjectType->CloseProcedure) {
-		(ObjectType->CloseProcedure)(Object);
+    KeReleaseSpinLock(&ObjectType->SpinLock, OldIrql);
 
-	}
+    PoolTag = ObjectType->PoolTag;
 
-	
-		
-	KeAcquireSpinLock( &ObjectType->SpinLock, &OldIrql);
-	LIST_REMOVE( &ObjectType->Object_List_Head, 
-					ObjectHeader, 
-					ObjectTypeListLink);
-
-
-	KeReleaseSpinLock(&ObjectType->SpinLock, OldIrql);
-
-	PoolTag = ObjectType->PoolTag;
-	
-	MmFreePoolWithTag(ObjectHeader, PoolTag);
-
+    MmFreePoolWithTag(ObjectHeader, PoolTag);
 }
 
-
-VOID
-ObCloseObject(
-							IN PVOID Object,
-							IN ULONG HandleCount
-							)
+VOID ObCloseObject(IN PVOID Object, IN ULONG HandleCount)
 
 {
-	KSTATUS status;
-	POBJECT_HEADER ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
-	POBJECT_TYPE ObjectType;
+    KSTATUS status;
+    POBJECT_HEADER ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
+    POBJECT_TYPE ObjectType;
 
+    ASSERT1(ObjectHeader->RefCount >= 1, ObjectHeader->RefCount);
 
-	ASSERT1(ObjectHeader->RefCount >= 1, ObjectHeader->RefCount);
+    // if Object is permanent, don't remove it. Just return here.
+    if (ObjectHeader->Attributes & OBJ_PERMANENT)
+    {
 
+        // Only a named Object can be defined permanent
+        ASSERT(ObjectHeader->ObjectName.Buffer != NULL);
 
-	// if Object is permanent, don't remove it. Just return here.
-	if (ObjectHeader->Attributes & OBJ_PERMANENT) {
+        return;
+    }
 
-	// Only a named Object can be defined permanent
-		ASSERT(ObjectHeader->ObjectName.Buffer != NULL);
+    // Before Creating the object handle, the object should be referenced first,
+    // so we will not increment the Object->Refcount while Inserting the Handle
+    // But while closing a handle the RefCount and handleCount both should be decremented
 
-		return;
-	}
+    if (HandleCount)
+    {
+        InterlockedExchangeAdd(&ObjectHeader->OpenHandleCount, -HandleCount);
+        InterlockedExchangeAdd(&ObjectHeader->RefCount, -HandleCount);
+    }
+    else
+    {
 
+        InterlockedDecrement(&ObjectHeader->RefCount);
+    }
 
-	// Before Creating the object handle, the object should be referenced first,
-	// so we will not increment the Object->Refcount while Inserting the Handle
-	//But while closing a handle the RefCount and handleCount both should be decremented
+    if (ObjectHeader->RefCount > 0)
+    {
+        return;
+    }
 
-
-	if (HandleCount) {
-		InterlockedExchangeAdd( &ObjectHeader->OpenHandleCount, -HandleCount);
-		InterlockedExchangeAdd( &ObjectHeader->RefCount, -HandleCount);
-
-	} else {
-
-		InterlockedDecrement( &ObjectHeader->RefCount);
-	}
-	
-	if (ObjectHeader->RefCount > 0) {
-		return;
-	}
-
-	//if ref count has reched 0 free the Object
-	ObRemoveObject(Object);
-
+    // if ref count has reched 0 free the Object
+    ObRemoveObject(Object);
 }
 
-
-
-VOID
-ObClose(HANDLE Handle)
+VOID ObClose(HANDLE Handle)
 {
-	KSTATUS Status;
-	PVOID Object;
-	Status = ObReferenceObjectByHandle(Handle, 0, NULL, UserMode, &Object, NULL);
+    KSTATUS Status;
+    PVOID Object;
+    Status = ObReferenceObjectByHandle(Handle, 0, NULL, UserMode, &Object, NULL);
 
+    ASSERT(K_SUCCESS(Status));
 
-	ASSERT(K_SUCCESS(Status));
+    ObDereferenceObject(Object); // Because we just took a ref
 
+    if (!K_SUCCESS(Status))
+    {
 
-	ObDereferenceObject( Object); //Because we just took a ref
+        return;
+    }
 
-	if (!K_SUCCESS(Status)) {
-
-		return;
-	}
-
-
-	ObCloseObject(Object,1);
+    ObCloseObject(Object, 1);
 }
 
-
-VOID
-ObIncrementHandleCount( 
-							IN PVOID Object)
+VOID ObIncrementHandleCount(IN PVOID Object)
 {
 
-	ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
-	POBJECT_HEADER ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
-	ASSERT(ObjectHeader->RefCount > 0);
-	
+    POBJECT_HEADER ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
+    ASSERT(ObjectHeader->RefCount > 0);
 
-	InterlockedIncrement(&ObjectHeader->OpenHandleCount);	
+    InterlockedIncrement(&ObjectHeader->OpenHandleCount);
 
-	// Before Creating the object handle, the object should be referenced first,
-	// so we will not increment the Object->Refcount while Inserting the Handle
-	//But while closing a handle the RefCount and handleCount both should be decremented
-
+    // Before Creating the object handle, the object should be referenced first,
+    // so we will not increment the Object->Refcount while Inserting the Handle
+    // But while closing a handle the RefCount and handleCount both should be decremented
 }
 
-
-VOID
-ObReferenceObject(
-						IN PVOID  Object
-						)
-{
-	
-	POBJECT_HEADER ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
-	ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
-	ASSERT(ObjectHeader->RefCount != 0);
-	ASSERT(ObIsValidObject(Object));
-
-	
-	InterlockedIncrement(&ObjectHeader->RefCount);
-}
-
-
-KSTATUS 
-ObReferenceObjectByPointer(
-						IN PVOID  Object,
-						IN ACCESS_MASK  DesiredAccess,
-						IN POBJECT_TYPE  ObjectType,
-						IN KPROCESSOR_MODE  AccessMode
-						)
-
+VOID ObReferenceObject(IN PVOID Object)
 {
 
-	POBJECT_HEADER ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
-	
-	ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
-//	ASSERT(AccessMode == KernelMode);
-// Check the Object Type
-	ASSERT(ObjectHeader->ObjectType == ObjectType);
-// Assert here if we are referencing an Object where the refcount has already gone to zero.
-	ASSERT(ObjectHeader->RefCount);
-	
-	ObReferenceObject( Object);
+    POBJECT_HEADER ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    ASSERT(ObjectHeader->RefCount != 0);
+    ASSERT(ObIsValidObject(Object));
 
-	return STATUS_SUCCESS;
-}
-
-
-KSTATUS 
-ObReferenceObjectByHandle(
-								IN HANDLE  Handle,
-								IN ACCESS_MASK  DesiredAccess,
-								IN POBJECT_TYPE  ObjectType  OPTIONAL,
-								IN KPROCESSOR_MODE  AccessMode,
-								OUT PVOID  *Object
-								)
-{
-
-
-	KSTATUS Status;
-	POBJECT_HEADER ObjectHeader;
-	PVOID LocalObject;
-	PEPROCESS CurrentProcess = PsGetCurrentProcess();
-
-//	ASSERT(AccessMode == KernelMode);
-	ASSERT(CurrentProcess);
-	
-	Status = ObLookupObjectByHandle(Handle,
-						&CurrentProcess->HandleTable, &LocalObject);
-
-	if (!K_SUCCESS(Status)) {
-		KeBugCheck("Failed to get the object from handle\n");
-		return Status; // Well if we remove the bug check some day
-	}
-
-// Get the Object header and increment the ref count
-	ObjectHeader = OBJECT_TO_OBJECT_HEADER(LocalObject);
-
-	
-	Status = ObReferenceObjectByPointer(LocalObject,
-									DesiredAccess,
-									ObjectType,
-									AccessMode);
-	
-	if (!K_SUCCESS(Status)) {
-		ASSERT(0);
-		return Status;
-	}
-
-
-	if (Object) {
-		*Object = LocalObject;
-	}
-	
-	return STATUS_SUCCESS;
-}
-
-
-
-VOID 
-ObDereferenceObject(
-						IN PVOID  Object
-						)
-{
-
-	ASSERT(ObIsValidObject( Object));
-	ObCloseObject(Object, 0);
+    InterlockedIncrement(&ObjectHeader->RefCount);
 }
 
 KSTATUS
-ObInsertObject(IN PVOID Object,
-					IN ACCESS_MASK DesiredAccess,
-					IN ULONG ObjectPointerBias,
-					OUT PHANDLE Handle)
+ObReferenceObjectByPointer(IN PVOID Object, IN ACCESS_MASK DesiredAccess, IN POBJECT_TYPE ObjectType,
+                           IN KPROCESSOR_MODE AccessMode)
+
 {
 
-	KSTATUS Status;
-	PEPROCESS Process = NULL;
+    POBJECT_HEADER ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
 
-	
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    //	ASSERT(AccessMode == KernelMode);
+    // Check the Object Type
+    ASSERT(ObjectHeader->ObjectType == ObjectType);
+    // Assert here if we are referencing an Object where the refcount has already gone to zero.
+    ASSERT(ObjectHeader->RefCount);
 
+    ObReferenceObject(Object);
 
-	Process = PsGetCurrentProcess();
+    return STATUS_SUCCESS;
+}
 
-	ASSERT(Process);
-	
-	Status = ObInsertHandle( Object, &Process->HandleTable,Handle);
+KSTATUS
+ObReferenceObjectByHandle(IN HANDLE Handle, IN ACCESS_MASK DesiredAccess, IN POBJECT_TYPE ObjectType OPTIONAL,
+                          IN KPROCESSOR_MODE AccessMode, OUT PVOID *Object)
+{
 
-	if (!K_SUCCESS(Status)) {
+    KSTATUS Status;
+    POBJECT_HEADER ObjectHeader;
+    PVOID LocalObject;
+    PEPROCESS CurrentProcess = PsGetCurrentProcess();
 
-		return Status;
-	}
-	
-	ObIncrementHandleCount(Object);
+    //	ASSERT(AccessMode == KernelMode);
+    ASSERT(CurrentProcess);
 
-	return STATUS_SUCCESS;
+    Status = ObLookupObjectByHandle(Handle, &CurrentProcess->HandleTable, &LocalObject);
 
+    if (!K_SUCCESS(Status))
+    {
+        KeBugCheck("Failed to get the object from handle\n");
+        return Status; // Well if we remove the bug check some day
+    }
+
+    // Get the Object header and increment the ref count
+    ObjectHeader = OBJECT_TO_OBJECT_HEADER(LocalObject);
+
+    Status = ObReferenceObjectByPointer(LocalObject, DesiredAccess, ObjectType, AccessMode);
+
+    if (!K_SUCCESS(Status))
+    {
+        ASSERT(0);
+        return Status;
+    }
+
+    if (Object)
+    {
+        *Object = LocalObject;
+    }
+
+    return STATUS_SUCCESS;
+}
+
+VOID ObDereferenceObject(IN PVOID Object)
+{
+
+    ASSERT(ObIsValidObject(Object));
+    ObCloseObject(Object, 0);
+}
+
+KSTATUS
+ObInsertObject(IN PVOID Object, IN ACCESS_MASK DesiredAccess, IN ULONG ObjectPointerBias, OUT PHANDLE Handle)
+{
+
+    KSTATUS Status;
+    PEPROCESS Process = NULL;
+
+    Process = PsGetCurrentProcess();
+
+    ASSERT(Process);
+
+    Status = ObInsertHandle(Object, &Process->HandleTable, Handle);
+
+    if (!K_SUCCESS(Status))
+    {
+
+        return Status;
+    }
+
+    ObIncrementHandleCount(Object);
+
+    return STATUS_SUCCESS;
 }
 
 /*
@@ -350,234 +287,198 @@ ObCreateObject(IN KPROCESSOR_MODE ProbeMode OPTIONAL,
 */
 
 KSTATUS
-ObCreateObject( 
-					IN KPROCESSOR_MODE ProbeMode, 
-					IN POBJECT_TYPE ObjectType,
-					IN POBJECT_ATTRIBUTES ObjectAttributes,
-					IN ULONG ObjectSize,
-					OUT PVOID *Object
-					)
-//ObCreateObject will set the refcount 1.
+ObCreateObject(IN KPROCESSOR_MODE ProbeMode, IN POBJECT_TYPE ObjectType, IN POBJECT_ATTRIBUTES ObjectAttributes,
+               IN ULONG ObjectSize, OUT PVOID *Object)
+// ObCreateObject will set the refcount 1.
 
 // If we just want to create the Handle to the Object and not use the object after that,
 // then we need to dereference after the ObInsertObject.
 
-
-
-
 {
 
-	KSTATUS Status = STATUS_SUCCESS;
-	POBJECT_HEADER ObjectHeader = NULL;
-	PVOID LocalObject;
-	size_t ObjectMemSize = 0;
-	KIRQL OldIrql;
-	PKTHREAD Thread;
+    KSTATUS Status = STATUS_SUCCESS;
+    POBJECT_HEADER ObjectHeader = NULL;
+    PVOID LocalObject;
+    size_t ObjectMemSize = 0;
+    KIRQL OldIrql;
+    PKTHREAD Thread;
 
-	POBJECT_DIRECTORY Root;
-	OBP_LOOKUP_CONTEXT Context;
-	BOOLEAN ObjectHasName = FALSE;
+    POBJECT_DIRECTORY Root;
+    OBP_LOOKUP_CONTEXT Context;
+    BOOLEAN ObjectHasName = FALSE;
 
+    Thread = KeGetCurrentThread();
 
+    ASSERT(Object != NULL);
+    ASSERT(ObjectSize > 0);
 
-	Thread = KeGetCurrentThread();
+    // For user mode we need to probe and verify the user addresses
+    //	ASSERT(ProbeMode == KernelMode);
+    ASSERT(ObjectType);
+    ASSERT(ObjectType == &ObjectTypeList[ObjectType->TypeIndex]);
+    //	ASSERT(ObjectAttributes);
 
-	ASSERT(Object != NULL);
-	ASSERT(ObjectSize > 0);
+    if (ObjectAttributes)
+    {
+        ASSERT1((ObjectAttributes->Attributes & ~OBJ_VALID_ATTRIBUTES) == 0, ObjectAttributes->Attributes);
+    }
 
-	// For user mode we need to probe and verify the user addresses
-//	ASSERT(ProbeMode == KernelMode);
-	ASSERT(ObjectType);
-	ASSERT(ObjectType == &ObjectTypeList[ObjectType->TypeIndex]);
-//	ASSERT(ObjectAttributes);
+    ObLog("Creating Object  Type %d 0x%x\n", ObjectType->TypeIndex, ObjectType);
 
-	if (ObjectAttributes) {
-		ASSERT1( (ObjectAttributes->Attributes & ~OBJ_VALID_ATTRIBUTES) == 0, ObjectAttributes->Attributes);
-	}
+    ObInitializeLookupContext(&Context);
 
-	ObLog("Creating Object  Type %d 0x%x\n", ObjectType->TypeIndex, ObjectType); 
+    // Check if the Object has a name
+    if ((ObjectAttributes) && (ObjectAttributes->ObjectName))
+    {
 
+        ObjectHasName = TRUE;
+        ObLog("Name Object %s\n", ObjectAttributes->ObjectName->Buffer);
 
-	ObInitializeLookupContext( &Context);
+        if (!ObjectAttributes->RootDirectory)
+        {
+            // If RootDirectory is 0, it means ObjectName is fully qualified, so start from ObRootDirectory
+            ASSERT(ObRootDirectory);
 
-// Check if the Object has a name
-	if ( (ObjectAttributes) && (ObjectAttributes->ObjectName)) {
+            Root = ObRootDirectory;
+        }
+        else
+        {
 
-		ObjectHasName = TRUE;
-		ObLog("Name Object %s\n", ObjectAttributes->ObjectName->Buffer);
+            Status = ObReferenceObjectByHandle(ObjectAttributes->RootDirectory, 0, ObDirectoryObjectType,
+                                               Thread->PreviousMode, &Root);
 
-		if (!ObjectAttributes->RootDirectory) {
-			// If RootDirectory is 0, it means ObjectName is fully qualified, so start from ObRootDirectory
-			ASSERT(ObRootDirectory);
+            if (!K_SUCCESS(Status))
+            {
+                return Status; // Well if we remove the bug check some day
+            }
+        }
 
-			
-			Root = ObRootDirectory;	
+        // Check if the Object Exists
+        Status = ObpLookupObjectByName(Root, ObjectAttributes->ObjectName, &Context, NULL);
 
-		} else {
+        if (K_SUCCESS(Status))
+        {
 
-			Status = ObReferenceObjectByHandle(
-							ObjectAttributes->RootDirectory,
-							0,
-							ObDirectoryObjectType,
-							Thread->PreviousMode,
-							&Root);
+            // We have found the Object, check if caller wanted to open it.
+            if (ObjectAttributes->Attributes & OBJ_OPENIF)
+            {
 
-			
-			if (!K_SUCCESS(Status)) {
-				return Status; // Well if we remove the bug check some day
-			}
-		}
+                ASSERT(ObIsValidObject(Context.Object));
 
-		
-	// Check if the Object Exists	
-		Status = ObpLookupObjectByName(
-							Root,
-							ObjectAttributes->ObjectName,
-							&Context,
-							NULL);
+                if (Object != NULL)
+                {
+                    *Object = Context.Object;
+                    ObReferenceObject(Object);
+                }
 
-		if ( K_SUCCESS(Status)) {
+                return Status;
+            }
+            // Else Return Name Collision
 
-		// We have found the Object, check if caller wanted to open it.
-			if ( ObjectAttributes->Attributes & OBJ_OPENIF) {				
+            ObLog("Name Collision for Object %s\n", ObjectAttributes->ObjectName->Buffer);
+            return STATUS_OBJECT_NAME_COLLISION;
+        }
 
-				ASSERT(ObIsValidObject( Context.Object));
-				
-				if ( Object != NULL) {
-					*Object = Context.Object;
-					ObReferenceObject( Object);
-				}
+        // If the Status is *NOT* STATUS_OBJECT_NAME_NOT_FOUND we will return the Status
+        if (Status != STATUS_OBJECT_NAME_NOT_FOUND)
+        {
+            ObLog("Error for Object %s err: 0x%x\n", ObjectAttributes->ObjectName->Buffer, Status);
+            return Status;
+        }
+    }
 
-				return Status;			
-			}
-		// Else Return Name Collision
-		
-			ObLog("Name Collision for Object %s\n", ObjectAttributes->ObjectName->Buffer);
-			return STATUS_OBJECT_NAME_COLLISION;
-		}
+    // The Object does not exist. Lets Create the object now.
 
-// If the Status is *NOT* STATUS_OBJECT_NAME_NOT_FOUND we will return the Status
-		if(Status != STATUS_OBJECT_NAME_NOT_FOUND) {
-				ObLog("Error for Object %s err: 0x%x\n", ObjectAttributes->ObjectName->Buffer, Status);
-				return Status;
-		}
+    // Size of Object plus header
+    ObjectMemSize = sizeof(OBJECT_HEADER) + ObjectSize;
 
-		
+    ObjectHeader = (POBJECT_HEADER)ExAllocatePoolWithTag(ObjectType->PoolType, ObjectMemSize, ObjectType->PoolTag);
 
-	}
+    if (ObjectHeader == NULL)
+    {
+        ObLog("Pool Allocation Failed for object\n");
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
 
+    // init the mem
+    memset(ObjectHeader, 0, ObjectMemSize);
 
-	
-// The Object does not exist. Lets Create the object now.
+    ObjectHeader->Magic = OBJECT_HEADER_MAGIC;
+    // Object starts at ObjectHeader->Body
+    LocalObject = &ObjectHeader->Body;
 
-//Size of Object plus header
-	ObjectMemSize = sizeof(OBJECT_HEADER) + ObjectSize;
+    if (ObjectHasName)
+    {
 
-	ObjectHeader = (POBJECT_HEADER)	
-							ExAllocatePoolWithTag( 
-								ObjectType->PoolType, 
-								ObjectMemSize, 
-								ObjectType->PoolTag);
+        ASSERT1(ObjectAttributes->ObjectName->Length <= MAX_OBJECT_PATH, ObjectAttributes->ObjectName->Length);
 
-	if (ObjectHeader == NULL) {
-		ObLog("Pool Allocation Failed for object\n");
-		return STATUS_INSUFFICIENT_RESOURCES;
-	}
+        if (ObjectAttributes->ObjectName->Length > MAX_OBJECT_PATH)
+        {
+            ExFreePoolWithTag(ObjectHeader, 'tjbo');
+            ObLog("Object Path too big %d\n", ObjectAttributes->ObjectName->Length);
+            return STATUS_INVALID_PARAMETER;
+        }
 
-	// init the mem
-	memset(ObjectHeader, 0, ObjectMemSize);
+        ObLog("Inserting Object %s len %d\n", ObjectAttributes->ObjectName->Buffer,
+              ObjectAttributes->ObjectName->Length);
 
-	ObjectHeader->Magic = OBJECT_HEADER_MAGIC;
-//Object starts at ObjectHeader->Body
-	LocalObject = &ObjectHeader->Body;
+        // Insert the Object
+        Status = ObpLookupObjectByName(Root, ObjectAttributes->ObjectName, &Context, ObjectHeader);
 
-	if (ObjectHasName) {	
+        if (!K_SUCCESS(Status))
+        {
 
-			ASSERT1(ObjectAttributes->ObjectName->Length <= MAX_OBJECT_PATH, 
-				ObjectAttributes->ObjectName->Length);
+            ObLog("Insertion Failed for Object %s err: 0x%x\n", ObjectAttributes->ObjectName->Buffer, Status);
+            ExFreePoolWithTag(ObjectHeader, 'tjbo');
+            return Status;
+        }
+    }
 
-			
-			if (ObjectAttributes->ObjectName->Length > MAX_OBJECT_PATH) {
-				ExFreePoolWithTag(ObjectHeader, 'tjbo');
-				ObLog("Object Path too big %d\n",ObjectAttributes->ObjectName->Length);
-				return STATUS_INVALID_PARAMETER;
-			}
+    if (ObjectAttributes)
+    {
+        ObjectHeader->Attributes = ObjectAttributes->Attributes;
+    }
 
+    // set what type of object this is.
+    ObjectHeader->ObjectType = ObjectType;
 
-		ObLog("Inserting Object %s len %d\n",ObjectAttributes->ObjectName->Buffer, 
-													ObjectAttributes->ObjectName->Length);
+    // Handle count will be incremented when we will create a handle for it
+    ObjectHeader->OpenHandleCount = 0;
 
-		// Insert the Object
-		Status = ObpLookupObjectByName(Root,
-							ObjectAttributes->ObjectName,
-							&Context,
-							ObjectHeader);
+    // Set the initial ref count to 1
+    ObjectHeader->RefCount = 1;
 
-		if (!K_SUCCESS(Status)) {
+    // We might not be using it, buts still lets keep it right now.
+    if (ObjectType->OpenProcedure)
+    {
+        Status = (ObjectType->OpenProcedure)(LocalObject);
 
-			ObLog("Insertion Failed for Object %s err: 0x%x\n", ObjectAttributes->ObjectName->Buffer, Status);
-			ExFreePoolWithTag(ObjectHeader, 'tjbo');
-			return Status;
-		}
+        if (!K_SUCCESS(Status))
+        {
 
+            ExFreePoolWithTag(ObjectHeader, 'tjbo');
+            return Status;
+        }
+    }
 
-		
-		
-	}
+    // Insert the object in object type list
+    KeAcquireSpinLock(&ObjectType->SpinLock, &OldIrql);
 
-	if (ObjectAttributes ) {
-		ObjectHeader->Attributes = ObjectAttributes->Attributes;
-	}
+    LIST_INSERT_HEAD(&ObjectType->Object_List_Head, ObjectHeader, ObjectTypeListLink);
 
-	
-	// set what type of object this is.
-	ObjectHeader->ObjectType = ObjectType;
+    KeReleaseSpinLock(&ObjectType->SpinLock, OldIrql);
 
-// Handle count will be incremented when we will create a handle for it
-	ObjectHeader->OpenHandleCount = 0;
+    if (Object != NULL)
+    {
+        *Object = LocalObject;
+    }
 
-// Set the initial ref count to 1
-	ObjectHeader->RefCount = 1;
-
-
-// We might not be using it, buts still lets keep it right now.
-	if (ObjectType->OpenProcedure) {
-		Status = (ObjectType->OpenProcedure)(LocalObject);			
-
-		if(!K_SUCCESS(Status)) {
-
-			ExFreePoolWithTag(ObjectHeader, 'tjbo');
-			return Status;
-		}
-	}
-
-	//Insert the object in object type list
-		KeAcquireSpinLock( &ObjectType->SpinLock, &OldIrql);
-	
-		LIST_INSERT_HEAD( &ObjectType->Object_List_Head, 
-								ObjectHeader, 
-								ObjectTypeListLink);
-	
-	
-		
-		KeReleaseSpinLock( &ObjectType->SpinLock, OldIrql);
-	
-
-
-	if(Object != NULL) {	
-		*Object = LocalObject;
-	}
-	
-	return STATUS_SUCCESS;
+    return STATUS_SUCCESS;
 
 ErrorExit:
 
-
-
-	return Status;
+    return Status;
 }
-
-
 
 #if 0
 
@@ -716,105 +617,67 @@ ObCreateObject(
 	return STATUS_SUCCESS;
 }
 
-
 #endif
 
-
-VOID
-Ob_init()
+VOID Ob_init()
 {
 
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    UNICODE_STRING Name;
+    KSTATUS Status;
+    POBJECT_DIRECTORY DirectoryObject;
+    HANDLE DirHandle;
 
-	OBJECT_ATTRIBUTES ObjectAttributes;
-	UNICODE_STRING Name;
-	KSTATUS Status;
-	POBJECT_DIRECTORY  DirectoryObject;
-	HANDLE DirHandle;
+    ObpCreateDirectoryObjectType();
+    ObpCreateSymbolicLinkObjectType();
 
-	ObpCreateDirectoryObjectType();
-	ObpCreateSymbolicLinkObjectType();
+    // Create Root Directory Object
+    RtlInitUnicodeString(&Name, "\\");
+    InitializeObjectAttributes(&ObjectAttributes, &Name, OBJ_PERMANENT | OBJ_KERNEL_HANDLE, NULL, NULL);
 
-//Create Root Directory Object
-	RtlInitUnicodeString( &Name,"\\");
-	InitializeObjectAttributes( &ObjectAttributes,
-							&Name,OBJ_PERMANENT | OBJ_KERNEL_HANDLE, NULL, NULL);
+    Status = ObCreateDirectoryObject(NULL, &DirectoryObject, 0, &ObjectAttributes);
 
-	Status = ObCreateDirectoryObject(
-				NULL,
-				&DirectoryObject,
-				0,
-				&ObjectAttributes);
-			
+    if (!K_SUCCESS(Status))
+    {
+        KeBugCheck("Root ObjectCreation Failed!!0x%x\n", Status);
+    }
 
-	if (!K_SUCCESS(Status)) {
-		KeBugCheck("Root ObjectCreation Failed!!0x%x\n", Status);
-	}
+    ObRootDirectory = DirectoryObject;
 
-	ObRootDirectory = DirectoryObject;
+    // Create Global??
+    RtlInitUnicodeString(&Name, "\\GLOBAL??");
+    InitializeObjectAttributes(&ObjectAttributes, &Name, OBJ_PERMANENT | OBJ_KERNEL_HANDLE, NULL, NULL);
 
+    Status = ObCreateDirectoryObject(NULL, &DirectoryObject, 0, &ObjectAttributes);
 
-// Create Global??
-	RtlInitUnicodeString( &Name,"\\GLOBAL??");
-	InitializeObjectAttributes( &ObjectAttributes,
-						&Name,OBJ_PERMANENT | OBJ_KERNEL_HANDLE, NULL, NULL);
+    if (!K_SUCCESS(Status))
+    {
+        KeBugCheck("GLOBAL?? ObjectCreation Failed!!0x%x\n", Status);
+    }
 
-	Status = ObCreateDirectoryObject(
-				NULL,
-				&DirectoryObject,
-				0,
-				&ObjectAttributes);
-			
+    ObGlobalDirectory = DirectoryObject;
 
-	if (!K_SUCCESS(Status)) {
-		KeBugCheck("GLOBAL?? ObjectCreation Failed!!0x%x\n", Status);
-	}
+    // Create
+    RtlInitUnicodeString(&Name, "\\Driver");
+    InitializeObjectAttributes(&ObjectAttributes, &Name, OBJ_PERMANENT | OBJ_KERNEL_HANDLE, DirHandle, NULL);
 
-	ObGlobalDirectory = DirectoryObject;
+    Status = ObCreateDirectoryObject(NULL, &DirectoryObject, 0, &ObjectAttributes);
 
+    if (!K_SUCCESS(Status))
+    {
+        KeBugCheck("Driver ObjectCreation Failed!!0x%x\n", Status);
+    }
 
+    // Create
+    RtlInitUnicodeString(&Name, "\\Device");
+    InitializeObjectAttributes(&ObjectAttributes, &Name, OBJ_PERMANENT | OBJ_KERNEL_HANDLE, DirHandle, NULL);
 
-	// Create 
-		RtlInitUnicodeString( &Name,"\\Driver");
-		InitializeObjectAttributes( &ObjectAttributes,
-							&Name,OBJ_PERMANENT | OBJ_KERNEL_HANDLE, DirHandle, NULL);
-	
-		Status = ObCreateDirectoryObject(
-					NULL,
-					&DirectoryObject,
-					0,
-					&ObjectAttributes);
-				
-	
-		if (!K_SUCCESS(Status)) {
-			KeBugCheck("Driver ObjectCreation Failed!!0x%x\n", Status);
-		}
-	
+    Status = ObCreateDirectoryObject(NULL, &DirectoryObject, 0, &ObjectAttributes);
 
+    if (!K_SUCCESS(Status))
+    {
+        KeBugCheck("Driver ObjectCreation Failed!!0x%x\n", Status);
+    }
 
-	// Create 
-		RtlInitUnicodeString( &Name,"\\Device");
-		InitializeObjectAttributes( &ObjectAttributes,
-							&Name,OBJ_PERMANENT | OBJ_KERNEL_HANDLE, DirHandle, NULL);
-	
-		Status = ObCreateDirectoryObject(
-					NULL,
-					&DirectoryObject,
-					0,
-					&ObjectAttributes);
-				
-	
-		if (!K_SUCCESS(Status)) {
-			KeBugCheck("Driver ObjectCreation Failed!!0x%x\n", Status);
-		}
-	
-
-
-	ObpPrintDirectoryTree(ObRootDirectory, 0);
-
-
+    ObpPrintDirectoryTree(ObRootDirectory, 0);
 }
-
-
-
-
-

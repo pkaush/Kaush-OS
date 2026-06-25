@@ -1,30 +1,27 @@
 /*
-*  C Implementation: KOSstart.c
-*
-* Description: The very first intialization file called from the assembly routine. It initializes all the sub systems 
-*		and run the very first process.
-*
-*
-* Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
-*
-* Copyright: See COPYRIGHT file that comes with this distribution
-*
-*/
-
+ *  C Implementation: KOSstart.c
+ *
+ * Description: The very first intialization file called from the assembly routine. It initializes all the sub systems
+ *		and run the very first process.
+ *
+ *
+ * Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
+ *
+ * Copyright: See COPYRIGHT file that comes with this distribution
+ *
+ */
 
 #include <inc/asm.h>
+#include <inc/assert.h>
+#include <inc/file.h>
 #include <inc/stdio.h>
 #include <inc/string.h>
-#include <inc/assert.h>
 #include <kern/hal/x86.h>
-#include <inc/file.h>
 
-#include <kern/mm/mm.h>
 #include <kern/ke/ke.h>
+#include <kern/mm/mm.h>
 
 #include <kern/ps/process.h>
-
-
 
 /*
 Declare some of the prototypes here as these will only be
@@ -33,172 +30,135 @@ called from here, so we do not need to put them in header file
 
 void printf_KOS();
 
-void
-GeneralTesting();
+void GeneralTesting();
 
-VOID
-IoAndFsTesting();
+VOID IoAndFsTesting();
 
-VOID
-Halinit(VOID);
+VOID Halinit(VOID);
 
-VOID
-KeInitPhase0();
+VOID KeInitPhase0();
 
-VOID
-MmInitPhase0();
+VOID MmInitPhase0();
 
-VOID
-PsInitPhase0();
+VOID PsInitPhase0();
 
-VOID
-PsCreateSystemProcess();
-
+VOID PsCreateSystemProcess();
 
 #include <kern/fs/ff.h>
-void
-KOS_start(void)
+void KOS_start(void)
 {
 
+    /*
+        Clear out the uninitialized global data (BSS) section of our program.
+        We have defined these symbols in kern/kernel.ld
+    */
+    extern char edata[], end[];
+    memset(edata, 0, end - edata);
+    VgaInit();
 
+    printf_KOS();
+    kprintf("Loading Kaush Operating System\n");
 
-/*
-	Clear out the uninitialized global data (BSS) section of our program.
-	We have defined these symbols in kern/kernel.ld
-*/
-	extern char edata[], end[];
-	memset(edata, 0, end - edata);
-	VgaInit();
-
-	printf_KOS();
-	kprintf("Loading Kaush Operating System\n");
-
-	Log(LOG_CRIT,"KOS Logging Start.\n");
+    Log(LOG_CRIT, "KOS Logging Start.\n");
 
 #ifdef DEBUG
 //	PrintMemSig();
 //	GeneralTesting();
 #endif
 
-/*
-	Do this First as this will initialize the processor structures
-	Irqls, Spinlock etc
-	 
-*/
-	KeInitPhase0();
+    /*
+        Do this First as this will initialize the processor structures
+        Irqls, Spinlock etc
 
-	kprintf("Irql -->%d\n", KeGetCurrentIrql());
-	// Memory Manager initialization functions
-	MmInitPhase0();
+    */
+    KeInitPhase0();
 
-	Ob_init();
+    kprintf("Irql -->%d\n", KeGetCurrentIrql());
+    // Memory Manager initialization functions
+    MmInitPhase0();
 
-	PsInitPhase0();
+    Ob_init();
 
-// Initialize HAL related datastructure
-	Halinit();
+    PsInitPhase0();
 
+    // Initialize HAL related datastructure
+    Halinit();
 
-	KeInitPhase1();
+    KeInitPhase1();
 
-		
-			
-	IoInit();
-	KFSinit();
+    IoInit();
+    KFSinit();
 
-	
+    // No need to enable interrupts here. Our first thread whens starts running it will load new value in EFLAGS
+    // Which will have interrupts enabled.
 
+    // Enable Interrupts
+    //	HalEnableInterrupts();
 
+    PsCreateSystemProcess();
 
-
-		// No need to enable interrupts here. Our first thread whens starts running it will load new value in EFLAGS
-		// Which will have interrupts enabled.
-
-
-		//Enable Interrupts 
-	//	HalEnableInterrupts();
-
-
-
-	PsCreateSystemProcess();
-
-
-
-		KeBugCheck("We Should never reach here\n");
+    KeBugCheck("We Should never reach here\n");
 }
-
-
 
 #if 1
-VOID
-CopyProcess(char *Buff,size_t size, char *filename) {
-
-	KSTATUS ret;
-	FIL fp;
-	UINT bdone;
-
-	f_chdrive(1);
-
-	ret = f_open( &fp,filename, FA_WRITE| FA_CREATE_NEW);
-	kprintf("fopen %d\n", ret);
-	ret = f_write( &fp, Buff, size, &bdone);
-	kprintf("fwrite %d bytes written %d\n", ret, bdone);
-
-	f_close(&fp);
-
-
-}
-
-
-
-#define COPY_PROCESS(x, y) {			\
-	extern uint8_t _binary_obj_##x##_start[],	\
-	_binary_obj_##x##_size[];					\
-													\
-	CopyProcess( _binary_obj_##x##_start, _binary_obj_##x##_size, y);	\
-}
-#endif
-
-VOID
-KosInit()
+VOID CopyProcess(char *Buff, size_t size, char *filename)
 {
 
-	KMUTANT mutex;
-	KIRQL OldIrql;
-	BOOL Interrupts;
-	FIL fp;
-	int ret;
+    KSTATUS ret;
+    FIL fp;
+    UINT bdone;
 
-	UINT bdone;
+    f_chdrive(1);
 
-	kprintf("Initialize Disk driver\n");
-	disk_init();
+    ret = f_open(&fp, filename, FA_WRITE | FA_CREATE_NEW);
+    kprintf("fopen %d\n", ret);
+    ret = f_write(&fp, Buff, size, &bdone);
+    kprintf("fwrite %d bytes written %d\n", ret, bdone);
 
-	ASSERT(KeGetCurrentThread());
+    f_close(&fp);
+}
 
+#define COPY_PROCESS(x, y)                                                                                             \
+    {                                                                                                                  \
+        extern uint8_t _binary_obj_##x##_start[], _binary_obj_##x##_size[];                                            \
+                                                                                                                       \
+        CopyProcess(_binary_obj_##x##_start, _binary_obj_##x##_size, y);                                               \
+    }
+#endif
+
+VOID KosInit()
+{
+
+    KMUTANT mutex;
+    KIRQL OldIrql;
+    BOOL Interrupts;
+    FIL fp;
+    int ret;
+
+    UINT bdone;
+
+    kprintf("Initialize Disk driver\n");
+    disk_init();
+
+    ASSERT(KeGetCurrentThread());
 
 #if 1
-{
-	KSTATUS Status;
-	HANDLE Handle;
-	CHAR buff [1024];
+    {
+        KSTATUS Status;
+        HANDLE Handle;
+        CHAR buff[1024];
 
+        f_chdrive(1);
+        Status = KCreateFile("/abc.txt", O_RDONLY, &Handle);
 
-	
-	f_chdrive(1);
-	Status = KCreateFile("/abc.txt", O_RDONLY,&Handle);
+        ASSERT1(K_SUCCESS(Status), Status);
+        Status = KReadFile(Handle, buff, 30);
 
-	ASSERT1(K_SUCCESS(Status), Status);
-	Status = KReadFile(Handle, buff, 30);
-
-	kprintf("fread %s\n", buff);
-	ASSERT1(K_SUCCESS(Status), Status);
-//	KCloseFile(Handle);
-}
+        kprintf("fread %s\n", buff);
+        ASSERT1(K_SUCCESS(Status), Status);
+        //	KCloseFile(Handle);
+    }
 #endif
-
-
-
 
 #if 0
 {
@@ -233,10 +193,6 @@ CHAR buff [1024];
 
 }
 #endif
-
-
-
-
 
 #if 0
 	
@@ -276,44 +232,30 @@ CHAR buff [1024];
 
 #endif
 
+    //	CREATE_PROCESS(user_prog_test);
+    //	COPY_PROCESS(user_prog_test, "testprog.exe");
 
+    PsCreateProcess(UserMode, NULL, "testprog.exe", 0, NULL, NULL);
 
-
-
-//	CREATE_PROCESS(user_prog_test);
-//	COPY_PROCESS(user_prog_test, "testprog.exe");
-
-
-	PsCreateProcess(
-	UserMode,
-	NULL, "testprog.exe", 0, NULL,NULL);
-
-
-	ObpPrintDirectoryTree(ObRootDirectory,0);
-	while(1) {		
-
-	}
-
+    ObpPrintDirectoryTree(ObRootDirectory, 0);
+    while (1)
+    {
+    }
 }
 
-
-
-void
-printf_KOS()
+void printf_KOS()
 {
 
-
-kprintf("\n	");
-kprintf("          #     #                  # #                             ######  \n");
-kprintf("          #   #                #           #                       #           #  \n");
-kprintf("          # #               #                 #                    #                \n");
-kprintf("          ##             #                       #                  ###### \n");
-kprintf("          # #               #                 #                                  #  \n");
-kprintf("          #   #                #           #                        #          #  \n");
-kprintf("          #     #                  # #                             ######  \n");
-kprintf("\n	");
-kprintf("\n	Loading .........................................\n");
-
+    kprintf("\n	");
+    kprintf("          #     #                  # #                             ######  \n");
+    kprintf("          #   #                #           #                       #           #  \n");
+    kprintf("          # #               #                 #                    #                \n");
+    kprintf("          ##             #                       #                  ###### \n");
+    kprintf("          # #               #                 #                                  #  \n");
+    kprintf("          #   #                #           #                        #          #  \n");
+    kprintf("          #     #                  # #                             ######  \n");
+    kprintf("\n	");
+    kprintf("\n	Loading .........................................\n");
 }
 
 /*
@@ -327,39 +269,38 @@ KIRQL BugCheckIrql;
  * Panic is called on unresolvable fatal errors.
  * It prints "KeBugCheck: mesg", and then enters the kernel monitor.
  */
-void
-_KeBugCheck(const char *file, int line, const char *fmt,...)
+void _KeBugCheck(const char *file, int line, const char *fmt, ...)
 {
 
-	va_list ap;
-	KIRQL Irql;
+    va_list ap;
+    KIRQL Irql;
 
-	BugCheckIrql = KeGetCurrentIrql();
+    BugCheckIrql = KeGetCurrentIrql();
 
-	KeRaiseIrql(HIGH_LEVEL, &Irql);
+    KeRaiseIrql(HIGH_LEVEL, &Irql);
 
-	if (KeBugCheckstr) {
-/*
-	In case we have already bugchecked.
-	Though I do not expect this should happen on single proc.
-*/		
-		goto dead;
-	}	
-	KeBugCheckstr = fmt;
+    if (KeBugCheckstr)
+    {
+        /*
+            In case we have already bugchecked.
+            Though I do not expect this should happen on single proc.
+        */
+        goto dead;
+    }
+    KeBugCheckstr = fmt;
 
-	va_start(ap, fmt);
-	kprintf("kernel KeBugCheck at %s:%d: ", file, line);
-	vprintf(fmt, ap);
-	kprintf("\n");
-	kprintf(" At Irql: %d", Irql);
-	va_end(ap);
+    va_start(ap, fmt);
+    kprintf("kernel KeBugCheck at %s:%d: ", file, line);
+    vprintf(fmt, ap);
+    kprintf("\n");
+    kprintf(" At Irql: %d", Irql);
+    va_end(ap);
 
 dead:
-	/* break into the kernel monitor */
-	while (1);
-
+    /* break into the kernel monitor */
+    while (1)
+        ;
 }
-
 
 #if 0
 void
@@ -469,11 +410,5 @@ IoAndFsTesting()
 	KCloseFile(Handle);
 
 }
-
-
-
-
-
-
 
 #endif

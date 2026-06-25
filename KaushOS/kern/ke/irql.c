@@ -1,112 +1,80 @@
 /*
-*  C Implementation: IRQL.c
-*
-* Description:
-*
-*
-* Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
-*
-* Copyright: See COPYRIGHT file that comes with this distribution
-*
-*/
+ *  C Implementation: IRQL.c
+ *
+ * Description:
+ *
+ *
+ * Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
+ *
+ * Copyright: See COPYRIGHT file that comes with this distribution
+ *
+ */
 
+#include <kern/ke/ke.h>
 
-#include	<kern/ke/ke.h>
-
-
-
-
-VOID 
-KeRaiseIrql(
-		IN KIRQL  NewIrql,
-		OUT PKIRQL  OldIrql
-		)
+VOID KeRaiseIrql(IN KIRQL NewIrql, OUT PKIRQL OldIrql)
 {
 
-	KIRQL CurrentIrql;
-	CurrentIrql = KeGetCurrentIrql();
+    KIRQL CurrentIrql;
+    CurrentIrql = KeGetCurrentIrql();
 
-	ASSERT(NewIrql >= CurrentIrql);
-	ASSERT(NewIrql !=3);
+    ASSERT(NewIrql >= CurrentIrql);
+    ASSERT(NewIrql != 3);
 
-	if (NewIrql != CurrentIrql) {
-// Set the new IRQL in HAL
-		HalRaiseIrql(NewIrql,CurrentIrql);
+    if (NewIrql != CurrentIrql)
+    {
+        // Set the new IRQL in HAL
+        HalRaiseIrql(NewIrql, CurrentIrql);
 
-// Set the new IRQL in PRCB
-		KiSetCurrentIrql(NewIrql);
-	}
+        // Set the new IRQL in PRCB
+        KiSetCurrentIrql(NewIrql);
+    }
 
-	
-	*OldIrql = CurrentIrql;
+    *OldIrql = CurrentIrql;
 }
 
-
-
-
-VOID 
-KeLowerIrql(
-		IN KIRQL  OldIrql
-		)
+VOID KeLowerIrql(IN KIRQL OldIrql)
 {
-	KIRQL CurrentIrql;
-	BOOL ints;
-	static int count = 0;
+    KIRQL CurrentIrql;
+    BOOL ints;
+    static int count = 0;
 
-//	ints = HalDisableInterrupts();
+    //	ints = HalDisableInterrupts();
 
-	CurrentIrql = KeGetCurrentIrql();
-	
-	ASSERT2(OldIrql <= CurrentIrql, OldIrql, CurrentIrql);
-	
+    CurrentIrql = KeGetCurrentIrql();
 
-/*
-	Take Care of pending DPC and APC
-*/
+    ASSERT2(OldIrql <= CurrentIrql, OldIrql, CurrentIrql);
 
+    /*
+        Take Care of pending DPC and APC
+    */
 
-	if ((OldIrql < DISPATCH_LEVEL) &&
-		(CurrentIrql >= DISPATCH_LEVEL)) {
+    if ((OldIrql < DISPATCH_LEVEL) && (CurrentIrql >= DISPATCH_LEVEL))
+    {
 
-		KiSetCurrentIrql(DISPATCH_LEVEL);
-		HalLowerIrql(DISPATCH_LEVEL,CurrentIrql);
+        KiSetCurrentIrql(DISPATCH_LEVEL);
+        HalLowerIrql(DISPATCH_LEVEL, CurrentIrql);
 
-// Update the current Irql here only instead of quering again.
-		CurrentIrql = DISPATCH_LEVEL;
+        // Update the current Irql here only instead of quering again.
+        CurrentIrql = DISPATCH_LEVEL;
 
-		KiProcessDpcQueue();
+        KiProcessDpcQueue();
+    }
 
-	}
+    if (OldIrql != CurrentIrql)
+    {
+        KiSetCurrentIrql(OldIrql);
+        HalLowerIrql(OldIrql, CurrentIrql);
+    }
 
-	
+    //	if (ints == TRUE) {
 
-	if (OldIrql != CurrentIrql) {
-		KiSetCurrentIrql(OldIrql);
-		HalLowerIrql(OldIrql,CurrentIrql);
-	}
-	
-//	if (ints == TRUE) {
-		
-//		HalEnableInterrupts();
-//	}
-
+    //		HalEnableInterrupts();
+    //	}
 }
 
-
-
-
-
-VOID INLINE
-KiRegisterVectortoIrql(
-							IN KIRQL Irql,
-							IN ULONG Vector
-							)
+VOID INLINE KiRegisterVectortoIrql(IN KIRQL Irql, IN ULONG Vector)
 {
 
-	HalRegisterVectortoIrql(Irql,Vector);
-
+    HalRegisterVectortoIrql(Irql, Vector);
 }
-
-
-
-

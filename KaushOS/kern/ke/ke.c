@@ -1,51 +1,35 @@
 /*
-*  C Implementation: Ke.c
-*
-* Description: Main file of the kernel
-*
-*
-* Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
-*
-* Copyright: See COPYRIGHT file that comes with this distribution
-*
-*/
+ *  C Implementation: Ke.c
+ *
+ * Description: Main file of the kernel
+ *
+ *
+ * Author: Puneet Kaushik <puneet.kaushik@gmail.com>, (C) 2010
+ *
+ * Copyright: See COPYRIGHT file that comes with this distribution
+ *
+ */
 
 #include "ke.h"
 
+VOID KiInitProcessorPhase0();
 
+VOID KiTrapInitialize();
 
-VOID
-KiInitProcessorPhase0();
-
-
-VOID
-KiTrapInitialize();
-
-
-VOID
-KeInitPhase0()
+VOID KeInitPhase0()
 {
-	//Initialize Processor
+    // Initialize Processor
 
-	KiInitProcessorPhase0();
+    KiInitProcessorPhase0();
 
+    // Initialize IDT
+    KiTrapInitialize();
 
-	//Initialize IDT
-	KiTrapInitialize();
-
-	KiSchedInitPhase();
-
-
-
+    KiSchedInitPhase();
 }
 
-
-
-VOID
-KeInitPhase1()
+VOID KeInitPhase1()
 {
 
-	KiTimerInit();
-
+    KiTimerInit();
 }
-
