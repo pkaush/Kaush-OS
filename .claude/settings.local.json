@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gdocs --help)",
+      "Bash(echo \"=== EXIT $? ===\")",
+      "Bash(gdocs docs *)"
+    ]
+  }
+}
