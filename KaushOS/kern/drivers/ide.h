@@ -15,7 +15,7 @@
 
 #include <inc/assert.h>
 #include <inc/types.h>
-#include <kern/hal/X86.h>
+#include <kern/hal/x86.h>
 #include <kern/ke/ke.h>
 
 #define _READONLY 0  /* 1: Remove write functions */

@@ -57,7 +57,7 @@ all:
 
 # Include Makefrags for subdirectories
 
-include user/Lib/Makefrag
+include user/lib/Makefrag
 include user/prog/Makefrag
 include boot/Makefrag
 include kern/Makefrag

@@ -13,7 +13,7 @@
 
 #include <inc/stdio.h>
 #include <inc/types.h>
-#include <kern/hal/X86.h>
+#include <kern/hal/x86.h>
 
 #define COL_CNT 80
 #define ROW_CNT 25

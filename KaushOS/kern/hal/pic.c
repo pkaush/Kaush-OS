@@ -15,7 +15,7 @@
 #include <inc/stdio.h>
 #include <inc/types.h>
 
-#include "X86.h"
+#include "x86.h"
 #include "hal.h"
 
 #define PIC0_CTRL 0x20 /* Master PIC control register address. */

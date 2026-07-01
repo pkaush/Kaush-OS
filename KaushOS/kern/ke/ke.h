@@ -39,7 +39,7 @@ typedef ULONG *PKIRQL;
     of IRQLS;
 */
 
-#include <kern/hal/X86.h>
+#include <kern/hal/x86.h>
 
 /*
     EIther of Them, lets keep it here for now so IDE can give
