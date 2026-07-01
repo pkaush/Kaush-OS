@@ -17,7 +17,7 @@ $(OBJDIR)/boot/%.o: boot/%.S
 
 $(OBJDIR)/boot/loadk.o: boot/loadk.c
 	@echo + cc -Os $<
-	$(V)$(CC) -nostdinc $(KERN_CFLAGS) -Os -c -o $(OBJDIR)/boot/loadk.o boot/loadk.c
+	$(V)$(CC) -nostdinc $(KERN_CFLAGS) -Os -fomit-frame-pointer -fno-asynchronous-unwind-tables -fno-stack-protector -c -o $(OBJDIR)/boot/loadk.o boot/loadk.c
 
 $(OBJDIR)/boot/boot: $(BOOT_OBJS)
 	@echo + ld boot/boot

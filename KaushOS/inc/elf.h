@@ -12,6 +12,7 @@
 
 #ifndef KOS_INC_ELF_H
 #define KOS_INC_ELF_H
+#include <inc/types.h>
 
 #define ELF_MAGIC 0x464C457FU /* "\x7FELF" in little endian */
 

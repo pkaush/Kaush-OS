@@ -1,28 +1,21 @@
 OBJDIR := obj
 
-
-SETUP_TOOLS_DIR := /usr/local/cross
-
-COMPILER := i386-kosj-elf
-
-
-USER_LIBC_INCLUDE := -I$(SETUP_TOOLS_DIR)/$(COMPILER)/include -I$(SETUP_TOOLS_DIR)/lib/gcc/$(COMPILER)/4.5.0/include
+USER_LIBC_INCLUDE :=
 
 #GCCPREFIX=i386-kos-elf-
 #GCCPREFIX=/cygdrive/c/mine/projects/newtools/BUILD/bin/bin/i686-kjaguar-elf-
 #GCCPREFIX=/cygdrive/c/mine/projects/newtools/BUILD_i386/bin/bin/i386-kjaguar-elf-
-GCCPREFIX=$(SETUP_TOOLS_DIR)/bin/$(COMPILER)-
+GCCPREFIX ?=
 
 #V = @
 
-
 TOP = .
 
-CC	:= $(GCCPREFIX)gcc -pipe
+CC	:= $(GCCPREFIX)gcc -pipe -m32
 GCC_LIB := $(shell $(CC) -print-libgcc-file-name)
-AS	:= $(GCCPREFIX)as
+AS	:= $(GCCPREFIX)as --32
 AR	:= $(GCCPREFIX)ar
-LD	:= $(GCCPREFIX)ld
+LD	:= $(GCCPREFIX)ld -m elf_i386
 OBJCOPY	:= $(GCCPREFIX)objcopy
 OBJDUMP	:= $(GCCPREFIX)objdump
 NM	:= $(GCCPREFIX)nm
@@ -47,16 +40,10 @@ OBJDIRS :=
 KERN_CFLAGS := $(CFLAGS) -DKOS_KERNEL -gstabs -Wno-multichar -Wno-implicit-function-declaration -march=i486
 USER_CFLAGS := $(CFLAGS) -DKOS_USER -gstabs
 
-
-
 # Make sure that 'all' is the first target
 all:
 
-
-
-
 # Include Makefrags for subdirectories
-
 include user/lib/Makefrag
 include user/prog/Makefrag
 include boot/Makefrag

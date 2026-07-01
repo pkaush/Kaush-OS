@@ -9,6 +9,7 @@
  * Copyright: See COPYRIGHT file that comes with this distribution
  *
  */
+#include <inc/types.h>
 
 USHORT
 Pic8259GetMask();

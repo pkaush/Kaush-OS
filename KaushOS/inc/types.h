@@ -42,7 +42,7 @@
 #endif
 
 #ifndef INLINE
-#define INLINE inline
+#define INLINE
 #endif
 
 #ifndef FORCEINLINE

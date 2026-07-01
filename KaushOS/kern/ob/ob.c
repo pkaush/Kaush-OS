@@ -18,6 +18,8 @@ typedef ULONG SECURITY_DESCRIPTOR;
 
 #define ObLogsEnable 1
 
+VOID ObDereferenceObject(IN PVOID Object);
+
 #if ObLogsEnable
 #define ObLog(fmt, args...)                                                                                            \
     kprintf("[%s][%d]:", __FUNCTION__, __LINE__);                                                                      \
